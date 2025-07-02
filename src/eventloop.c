@@ -103,15 +103,14 @@ int restful_init(restful_loop_t *loop, const char *ip, uint16_t port)
 restful_loop_t *restful_new(const char *ip, uint16_t port)
 {
     restful_loop_t *loop = (restful_loop_t *)malloc(sizeof(*loop));
-    if (loop) {
-        if (restful_init(loop, ip, port) != 0) {
-            RESTFUL_ERR("Failed to initialize restful");
-            free(loop);
-            return NULL;
-        }
-    }
-    else {
+    if (!loop) {
         RESTFUL_ERR("Out of memory");
+        return NULL;
+    }
+    if (restful_init(loop, ip, port) != 0) {
+        RESTFUL_ERR("Failed to initialize restful");
+        free(loop);
+        return NULL;
     }
     return loop;
 }
