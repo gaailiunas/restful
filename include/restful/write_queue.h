@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 typedef struct restful_write_node_s {
-    char *data;
+    const char *data;
     size_t nbytes;
     struct restful_write_node_s *next;
 } restful_write_node_t;
@@ -15,8 +15,9 @@ typedef struct restful_write_queue_s {
 } restful_write_queue_t;
 
 void restful_write_queue_init(restful_write_queue_t *);
-int restful_write_enqueue(restful_write_queue_t *, char *data, size_t nbytes);
-void restful_write_dequeue(restful_write_queue_t *);
+int restful_write_enqueue(restful_write_queue_t *, const char *data,
+                          size_t nbytes);
+restful_write_node_t *restful_write_dequeue(restful_write_queue_t *);
 void restful_write_queue_free(restful_write_queue_t *);
 
 #endif // RESTFUL_WRITE_QUEUE_H

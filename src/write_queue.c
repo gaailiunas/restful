@@ -10,7 +10,7 @@ void restful_write_queue_init(restful_write_queue_t *queue)
     queue->rear = NULL;
 }
 
-int restful_write_enqueue(restful_write_queue_t *queue, char *data,
+int restful_write_enqueue(restful_write_queue_t *queue, const char *data,
                           size_t nbytes)
 {
     restful_write_node_t *node = (restful_write_node_t *)malloc(sizeof(*node));
@@ -35,17 +35,17 @@ int restful_write_enqueue(restful_write_queue_t *queue, char *data,
     return 0;
 }
 
-void restful_write_dequeue(restful_write_queue_t *queue)
+restful_write_node_t *restful_write_dequeue(restful_write_queue_t *queue)
 {
     if (!queue->front) {
         RESTFUL_DEBUG("No queue front node");
-        return;
+        return NULL;
     }
     restful_write_node_t *tmp = queue->front;
     queue->front = queue->front->next;
     if (!queue->front)
         queue->rear = NULL;
-    free(tmp);
+    return tmp;
 }
 
 void restful_write_queue_free(restful_write_queue_t *queue)

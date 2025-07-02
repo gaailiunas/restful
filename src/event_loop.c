@@ -1,11 +1,13 @@
 #include <restful/client.h>
 #include <restful/event_loop.h>
 #include <restful/logging.h>
+#include <restful/write_queue.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/syslog.h>
 #include <unistd.h>
 
 #include <fcntl.h>
@@ -90,7 +92,7 @@ int restful_init(restful_loop_t *loop, const char *ip, uint16_t port)
     struct epoll_event ev = {.events = EPOLLIN, .data.ptr = (void *)rev};
 
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, loop->fd, &ev) == -1) {
-        RESTFUL_ERR("Failed to set server socket to epoll");
+        RESTFUL_ERR("EPOLL_CTL_ADD failed");
         close(loop->fd);
         close(loop->epoll_fd);
         free(rev);
@@ -124,6 +126,16 @@ static void restful__on_read(restful_loop_t *loop, restful_event_t *event,
 
     RESTFUL_DEBUG("read %lu bytes", nread);
 
+    // testing
+    static char resp[] = "HTTP/1.1 200 OK\r\n\r\n<h1>test</h1>";
+    //char *data = (char *)malloc(sizeof(resp) - 1);
+    //memcpy(data, resp, sizeof(resp) - 1);
+    restful_client_write(event->client, resp, sizeof(resp) - 1);
+    // ---
+
+    ev.events = EPOLLOUT;
+    epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD, event->client->fd, &ev);
+
     free(buf);
 }
 
@@ -145,7 +157,7 @@ static int restful__add_client(restful_loop_t *loop, int fd)
 
     struct epoll_event ev = {.events = EPOLLIN, .data.ptr = (void *)rev};
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        RESTFUL_ERR("Failed to add socket to epoll");
+        RESTFUL_ERR("EPOLL_CTL_ADD failed");
         free(client);
         free(rev);
         return 1;
@@ -156,9 +168,11 @@ static int restful__add_client(restful_loop_t *loop, int fd)
 static inline void restful__remove_client(restful_loop_t *loop,
                                           restful_event_t *event)
 {
-    epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, event->client->fd, NULL);
-    close(event->client->fd);
-    free(event->client);
+    if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, event->client->fd, NULL) ==
+        -1) {
+        RESTFUL_ERR("EPOLL_CTL_DEL failed");
+    }
+    restful_client_free(event->client);
     free(event);
 }
 
@@ -198,6 +212,7 @@ void restful_dispatch(restful_loop_t *loop)
                     ssize_t nread =
                         recv(rev->client->fd, buf, BUFFER_SIZE - 1, 0);
                     if (nread <= 0) {
+                        RESTFUL_DEBUG("nread: %ld. removing client", nread);
                         restful__remove_client(loop, rev);
                         free(buf);
                         continue;
@@ -207,7 +222,35 @@ void restful_dispatch(restful_loop_t *loop)
                     restful__on_read(loop, rev, buf, nread);
                 }
                 if (events[i].events & EPOLLOUT) {
-                    // TODO: check for req in writing queue then disable flag
+                    restful_write_node_t *write_req =
+                        restful_write_dequeue(&rev->client->write_queue);
+                    ssize_t nsent = send(rev->client->fd, write_req->data,
+                                         write_req->nbytes, 0);
+                    free(write_req);
+                    if (nsent <= 0) {
+                        RESTFUL_DEBUG("nsent: %ld. removing client", nsent);
+                        restful__remove_client(loop, rev);
+                        continue;
+                    }
+
+                    // TODO: add a callback for written requests.
+                    // now it can or cant leak memory, because we don't know how its allocated
+
+                    RESTFUL_DEBUG("sent %lu bytes", nsent);
+
+                    if (!rev->client->write_queue.front) {
+                        RESTFUL_DEBUG(
+                            "Write queue is empty. Disabling EPOLLOUT");
+                        struct epoll_event ev = {.events = events[i].events &
+                                                           ~EPOLLOUT,
+                                                 .data.ptr = (void *)rev};
+                        if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD,
+                                      rev->client->fd, &ev) == -1) {
+                            RESTFUL_ERR("EPOLL_CTL_MOD failed");
+                            restful__remove_client(loop, rev);
+                            continue;
+                        }
+                    }
                 }
             }
         }
