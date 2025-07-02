@@ -1,5 +1,6 @@
 #include <restful/client.h>
 #include <restful/eventloop.h>
+#include <restful/logging.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -28,17 +29,21 @@ typedef struct {
 int restful_init(restful_loop_t *loop, const char *ip, uint16_t port)
 {
     loop->fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (loop->fd == -1)
+    if (loop->fd == -1) {
+        RESTFUL_ERR("Invalid server socket");
         return 1;
+    }
 
     const int enable = 1;
     if (setsockopt(loop->fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) <
         0) {
+        RESTFUL_ERR("Failed to set reusable addr opt to server socket");
         close(loop->fd);
         return 1;
     }
 
     if (fcntl(loop->fd, F_SETFL, O_NONBLOCK) < 0) {
+        RESTFUL_ERR("Failed to set nonblocking opt to server socket");
         close(loop->fd);
         return 1;
     }
@@ -47,28 +52,33 @@ int restful_init(restful_loop_t *loop, const char *ip, uint16_t port)
     sin.sin_family = AF_INET;
     sin.sin_port = htons(port);
     if (inet_pton(AF_INET, ip, &sin.sin_addr) != 1) {
+        RESTFUL_ERR("Invalid IP");
         close(loop->fd);
         return 1;
     }
 
     if (bind(loop->fd, (const struct sockaddr *)&sin, sizeof(sin)) != 0) {
+        RESTFUL_ERR("Failed to bind");
         close(loop->fd);
         return 1;
     }
 
     if (listen(loop->fd, SOMAXCONN) != 0) {
+        RESTFUL_ERR("Failed to listen");
         close(loop->fd);
         return 1;
     }
 
     loop->epoll_fd = epoll_create1(0);
     if (loop->epoll_fd == -1) {
+        RESTFUL_ERR("Failed to create epoll socket");
         close(loop->fd);
         return 1;
     }
 
     restful_event_t *rev = (restful_event_t *)malloc(sizeof(*rev));
     if (!rev) {
+        RESTFUL_ERR("Out of memory");
         close(loop->fd);
         close(loop->epoll_fd);
         return 1;
@@ -80,6 +90,7 @@ int restful_init(restful_loop_t *loop, const char *ip, uint16_t port)
     struct epoll_event ev = {.events = EPOLLIN, .data.ptr = (void *)rev};
 
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, loop->fd, &ev) == -1) {
+        RESTFUL_ERR("Failed to set server socket to epoll");
         close(loop->fd);
         close(loop->epoll_fd);
         free(rev);
@@ -94,9 +105,13 @@ restful_loop_t *restful_new(const char *ip, uint16_t port)
     restful_loop_t *loop = (restful_loop_t *)malloc(sizeof(*loop));
     if (loop) {
         if (restful_init(loop, ip, port) != 0) {
+            RESTFUL_ERR("Failed to initialize restful");
             free(loop);
             return NULL;
         }
+    }
+    else {
+        RESTFUL_ERR("Out of memory");
     }
     return loop;
 }
@@ -108,8 +123,8 @@ static void restful__on_read(restful_loop_t *loop, restful_event_t *event,
     struct epoll_event ev = {.events = 0, .data.ptr = event};
     epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD, event->client->fd, &ev);
 
-    printf("read %lu bytes\n", nread);
-    // printf("data: %s\n", buf);
+    RESTFUL_DEBUG("read %lu bytes", nread);
+
     free(buf);
 }
 
@@ -117,10 +132,12 @@ static int restful__add_client(restful_loop_t *loop, int fd)
 {
     restful_event_t *rev = (restful_event_t *)malloc(sizeof(*rev));
     if (!rev) {
+        RESTFUL_ERR("Out of memory");
         return 1;
     }
     restful_client_t *client = restful_client_new(fd);
     if (!client) {
+        RESTFUL_ERR("Out of memory");
         free(rev);
         return 1;
     }
@@ -129,6 +146,7 @@ static int restful__add_client(restful_loop_t *loop, int fd)
 
     struct epoll_event ev = {.events = EPOLLIN, .data.ptr = (void *)rev};
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
+        RESTFUL_ERR("Failed to add socket to epoll");
         free(client);
         free(rev);
         return 1;
@@ -152,26 +170,25 @@ void restful_dispatch(restful_loop_t *loop)
     while (1) {
         int nfds = epoll_wait(loop->epoll_fd, events, MAX_EVENTS, POLL_TIMEOUT);
         if (nfds < 0) {
-            printf("epoll_wait error\n");
+            RESTFUL_ERR("epoll_wait");
             break;
         }
 
         for (int i = 0; i < nfds; i++) {
             restful_event_t *rev = (restful_event_t *)events[i].data.ptr;
             if (rev->type == RESTFUL_TYPE_SERVER) {
-                printf("accepting\n");
                 int clientfd = accept(loop->fd, NULL, NULL);
                 if (clientfd == -1) {
-                    printf("accept error\n");
+                    RESTFUL_ERR("Failed to accept");
                     continue;
                 }
                 if (fcntl(clientfd, F_SETFL, O_NONBLOCK) < 0) {
-                    printf("fcntl error\n");
+                    RESTFUL_ERR("Failed to set nonblockable opt to socket");
                     close(clientfd);
                     continue;
                 }
                 restful__add_client(loop, clientfd);
-                printf("fd connected: %u\n", clientfd);
+                RESTFUL_DEBUG("fd connected: %u\n", clientfd);
             }
             else {
                 if (events[i].events & EPOLLIN) {
@@ -179,7 +196,6 @@ void restful_dispatch(restful_loop_t *loop)
                     if (!buf) {
                         continue;
                     }
-                    printf("reading here\n");
                     ssize_t nread =
                         recv(rev->client->fd, buf, BUFFER_SIZE - 1, 0);
                     if (nread <= 0) {
