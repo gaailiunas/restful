@@ -1,5 +1,5 @@
 #include <restful/client.h>
-#include <restful/eventloop.h>
+#include <restful/event_loop.h>
 #include <restful/logging.h>
 
 #include <arpa/inet.h>

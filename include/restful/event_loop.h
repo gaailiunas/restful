@@ -1,5 +1,5 @@
-#ifndef RESTFUL_EVENTLOOP_H
-#define RESTFUL_EVENTLOOP_H
+#ifndef RESTFUL_EVENT_LOOP_H
+#define RESTFUL_EVENT_LOOP_H
 
 #include <restful/client.h>
 #include <stdint.h>
@@ -16,4 +16,4 @@ restful_loop_t *restful_new(const char *ip, uint16_t port);
 
 void restful_dispatch(restful_loop_t *);
 
-#endif // RESTFUL_EVENTLOOP_H
+#endif // RESTFUL_EVENT_LOOP_H

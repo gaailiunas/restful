@@ -1,4 +1,4 @@
-#include <restful/eventloop.h>
+#include <restful/event_loop.h>
 #include <sys/syslog.h>
 
 int main(void)
