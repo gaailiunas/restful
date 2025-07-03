@@ -128,8 +128,8 @@ static void restful__on_read(restful_loop_t *loop, restful_event_t *event,
 
     // testing
     static char resp[] = "HTTP/1.1 200 OK\r\n\r\n<h1>test</h1>";
-    //char *data = (char *)malloc(sizeof(resp) - 1);
-    //memcpy(data, resp, sizeof(resp) - 1);
+    // char *data = (char *)malloc(sizeof(resp) - 1);
+    // memcpy(data, resp, sizeof(resp) - 1);
     restful_client_write(event->client, resp, sizeof(resp) - 1);
     // ---
 
@@ -200,7 +200,11 @@ void restful_dispatch(restful_loop_t *loop)
                     close(clientfd);
                     continue;
                 }
-                restful__add_client(loop, clientfd);
+                if (restful__add_client(loop, clientfd) != 0) {
+                    RESTFUL_ERR("Failed to add client to epoll");
+                    close(clientfd);
+                    continue;
+                }
                 RESTFUL_DEBUG("fd connected: %u\n", clientfd);
             }
             else {
@@ -234,7 +238,8 @@ void restful_dispatch(restful_loop_t *loop)
                     }
 
                     // TODO: add a callback for written requests.
-                    // now it can or cant leak memory, because we don't know how its allocated
+                    // now it can or cant leak memory, because we don't know how
+                    // its allocated
 
                     RESTFUL_DEBUG("sent %lu bytes", nsent);
 
